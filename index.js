@@ -32,6 +32,7 @@ const TOURNAMENT_HOST_ROLE   = "1503089031649431582";
 const TOURNAMENT_CHANNEL     = "1462389214313451561";
 const MVCT_SIGNUPS_CHANNEL   = "1462389355568959529";
 const LEAGUE_HOST_ROLE       = "1503089031649431582";
+const LEAGUE_ROLE            = "1500068561174003853";
 
 const TOURNAMENT_RULES = `**Tournament Disclaimers**
 
@@ -525,6 +526,7 @@ async function handleCommand(interaction) {
       );
 
       await interaction.reply({ content: "✅ League hosted!", flags: 64 });
+      await interaction.channel.send({ content: `<@&${LEAGUE_ROLE}> A new league is open — join now!` });
       const msg = await interaction.channel.send({ embeds: [embed], components: [row] });
 
       db.leagues[id] = {
@@ -798,6 +800,14 @@ async function handleButton(interaction) {
     await updateLeagueMessage(data);
     await interaction.reply({ content: `✅ You joined league **${lid}**! (${data.players.length}/${data.maxPlayers})`, flags: 64 });
 
+    // Ping the league role to notify a new player joined
+    try {
+      const leagueCh = await client.channels.fetch(data.channelId);
+      await leagueCh.send({ content: `<@&${LEAGUE_ROLE}> <@${interaction.user.id}> joined league **${lid}**! (${data.players.length}/${data.maxPlayers} players)` });
+    } catch (err) {
+      console.error("Failed to send league role ping on join:", err);
+    }
+
     if (data.players.length >= data.maxPlayers && data.active) {
       await autoTeamUp(data, interaction.guild);
     }
@@ -829,13 +839,15 @@ async function handleModal(interaction) {
         type: ChannelType.GuildText,
         permissionOverwrites: [
           { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
           { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
           { id: TRYOUT_MANAGER_ROLE,   allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
           { id: TRYOUT_MANAGER_ROLE_2, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
         ],
       });
+      console.log(`✅ Created tryout ticket channel ${ticketChannel.id} for user ${userId}`);
     } catch (err) {
-      console.error("Failed to create ticket channel:", err);
+      console.error(`❌ Failed to create ticket channel for user ${userId} in guild ${guild.id}:`, err.message, err.code ?? "");
       return interaction.reply({ content: "❌ Failed to create ticket channel. Please contact a staff member.", flags: 64 });
     }
 
@@ -1035,20 +1047,39 @@ async function autoTeamUp(data, guild) {
   if (!data.threadId) {
     try {
       const ch = await client.channels.fetch(data.channelId);
-      const thread = await ch.threads.create({
-        name: `League ${data.id}`,
-        type: ChannelType.PrivateThread,
-        invitable: false,
-        reason: `Private thread for league ${data.id}`,
-      });
+
+      // Attempt to create a private thread first; fall back to public if the
+      // server boost level doesn't support private threads.
+      let thread;
+      try {
+        thread = await ch.threads.create({
+          name: `🏆 League ${data.id}`,
+          type: ChannelType.PrivateThread,
+          invitable: false,
+          reason: `Private thread for league ${data.id}`,
+        });
+        console.log(`✅ Created private thread ${thread.id} for league ${data.id}`);
+      } catch (privateErr) {
+        console.warn(`⚠️ Private thread creation failed for league ${data.id}, falling back to public thread:`, privateErr.message);
+        thread = await ch.threads.create({
+          name: `🏆 League ${data.id}`,
+          type: ChannelType.PublicThread,
+          reason: `Thread for league ${data.id}`,
+        });
+        console.log(`✅ Created public thread ${thread.id} for league ${data.id}`);
+      }
+
       data.threadId = thread.id;
       saveDB(db);
 
+      // Add all players to the thread
       for (const playerId of data.players) {
-        await thread.members.add(playerId).catch(() => {});
+        await thread.members.add(playerId).catch((err) => {
+          console.warn(`⚠️ Could not add player ${playerId} to league thread:`, err.message);
+        });
       }
     } catch (err) {
-      console.error("Failed to create league thread:", err);
+      console.error("❌ Failed to create league thread:", err);
     }
   }
 
