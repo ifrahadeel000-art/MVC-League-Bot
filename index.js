@@ -32,7 +32,6 @@ const TOURNAMENT_HOST_ROLE   = "1503089031649431582";
 const TOURNAMENT_CHANNEL     = "1462389214313451561";
 const MVCT_SIGNUPS_CHANNEL   = "1462389355568959529";
 const LEAGUE_HOST_ROLE       = "1503089031649431582";
-const LEAGUE_ROLE            = "1500068561174003853";
 
 const TOURNAMENT_RULES = `**Tournament Disclaimers**
 
@@ -61,10 +60,9 @@ function saveDB(data) {
 const db = loadDB();
 
 // ─── IN-MEMORY RUNTIME STATE ───────────────────────────────────────────────────
-// (timers, pending signups — not persisted)
-const giveawayTimers  = new Map(); // messageId → setTimeout handle
-const pendingSignups  = new Map(); // key → { tournamentId, entry }
-const spamMap         = new Map(); // guildId:userId → { count, lastMessage, warned, muted }
+const giveawayTimers  = new Map();
+const pendingSignups  = new Map();
+const spamMap         = new Map();
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────────
 function hasRole(member, ...roleIds) {
@@ -227,7 +225,7 @@ const commands = [
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-  console.log("✅ Slash commands registered globally.");
+  console.log("Slash commands registered globally.");
 }
 
 // ─── CLIENT ────────────────────────────────────────────────────────────────────
@@ -244,7 +242,7 @@ const client = new Client({
 
 // ─── READY ────────────────────────────────────────────────────────────────────
 client.once("clientReady", async (c) => {
-  console.log(`✅ Logged in as ${c.user.tag}`);
+  console.log(`Logged in as ${c.user.tag}`);
   try {
     await registerCommands();
   } catch (err) {
@@ -260,11 +258,8 @@ client.on("interactionCreate", async (interaction) => {
     else if (interaction.isModalSubmit())  await handleModal(interaction);
   } catch (err) {
     console.error("Interaction error:", err);
-    const reply = { content: "❌ Something went wrong.", flags: 64 };
-    try {
-      if (interaction.replied || interaction.deferred) await interaction.followUp(reply);
-      else await interaction.reply(reply);
-    } catch {}
+    if (interaction.replied || interaction.deferred) return;
+    try { await interaction.reply({ content: "Something went wrong.", flags: 64 }); } catch {}
   }
 });
 
@@ -291,7 +286,7 @@ client.on("messageCreate", async (message) => {
   if (data.count >= 5) {
     data.muted = true;
     try {
-      await message.channel.send(`⚠️ <@${message.author.id}> has been muted for **5 minutes** for spamming.`);
+      await message.channel.send(`<@${message.author.id}> has been muted for **5 minutes** for spamming.`);
       await message.member.timeout(5 * 60 * 1000, "Spam protection");
       setTimeout(() => {
         const d = spamMap.get(key);
@@ -305,7 +300,7 @@ client.on("messageCreate", async (message) => {
     data.warned = true;
     try {
       const warn = await message.channel.send(
-        `⚠️ <@${message.author.id}>, slow down! Continuing to spam will result in a mute.`
+        `<@${message.author.id}>, slow down! Continuing to spam will result in a mute.`
       );
       setTimeout(() => warn.delete().catch(() => {}), 5000);
     } catch {}
@@ -321,7 +316,7 @@ async function handleCommand(interaction) {
   // ── TRYOUT PANEL ────────────────────────────────────────────────────────────
   if (cmd === "tryout_panel") {
     const channel = await client.channels.fetch(TRYOUT_TICKET_CHANNEL).catch(() => null);
-    if (!channel) return interaction.reply({ content: "❌ Could not find the tryout channel.", flags: 64 });
+    if (!channel) return interaction.reply({ content: "Could not find the tryout channel.", flags: 64 });
 
     const embed = new EmbedBuilder()
       .setTitle("TRYOUT REQUEST")
@@ -333,13 +328,13 @@ async function handleCommand(interaction) {
     );
 
     await channel.send({ embeds: [embed], components: [row] });
-    return interaction.reply({ content: "✅ Tryout panel sent!", flags: 64 });
+    return interaction.reply({ content: "Tryout panel sent!", flags: 64 });
   }
 
   // ── GIVEAWAY ────────────────────────────────────────────────────────────────
   if (cmd === "giveaway") {
     if (!hasRole(interaction.member, GIVEAWAY_HOST_ROLE))
-      return interaction.reply({ content: "❌ Only Giveaway Hosts can manage giveaways.", flags: 64 });
+      return interaction.reply({ content: "Only Giveaway Hosts can manage giveaways.", flags: 64 });
 
     const sub = interaction.options.getSubcommand();
 
@@ -352,7 +347,7 @@ async function handleCommand(interaction) {
       const embed = buildGiveawayEmbed(prize, winners, endsAt, interaction.user.id, []);
       const row = giveawayEntryRow(false);
 
-      await interaction.reply({ content: "🎉 Giveaway started!", flags: 64 });
+      await interaction.reply({ content: "Giveaway started!", flags: 64 });
       const msg = await interaction.channel.send({ embeds: [embed], components: [row] });
 
       db.giveaways[msg.id] = {
@@ -370,25 +365,25 @@ async function handleCommand(interaction) {
     if (sub === "end") {
       const msgId = interaction.options.getString("message_id");
       await endGiveaway(msgId);
-      return interaction.reply({ content: "✅ Giveaway ended.", flags: 64 });
+      return interaction.reply({ content: "Giveaway ended.", flags: 64 });
     }
 
     if (sub === "reroll") {
       const msgId = interaction.options.getString("message_id");
       const data  = db.giveaways[msgId];
       if (!data || !data.ended)
-        return interaction.reply({ content: "❌ Could not find an ended giveaway with that ID.", flags: 64 });
+        return interaction.reply({ content: "Could not find an ended giveaway with that ID.", flags: 64 });
 
       const eligible = data.participants.filter((id) => id !== data.hostId && !data.winnerIds.includes(id));
       if (!eligible.length)
-        return interaction.reply({ content: "❌ No more eligible participants to reroll.", flags: 64 });
+        return interaction.reply({ content: "No more eligible participants to reroll.", flags: 64 });
 
       const winner = eligible[Math.floor(Math.random() * eligible.length)];
       data.winnerIds.push(winner);
       saveDB(db);
 
       await interaction.reply(
-        `🎉 **Reroll!** The new winner is <@${winner}>! Congratulations! Contact <@${data.hostId}> to claim **${data.prize}**.`
+        `Reroll! The new winner is <@${winner}>! Congratulations! Contact <@${data.hostId}> to claim **${data.prize}**.`
       );
 
       try {
@@ -397,7 +392,7 @@ async function handleCommand(interaction) {
         const mentions = data.winnerIds.map((id) => `<@${id}>`).join(", ");
         await msg.edit({
           embeds: [new EmbedBuilder()
-            .setTitle("🎉 Giveaway Ended! (Rerolled)")
+            .setTitle("Giveaway Ended! (Rerolled)")
             .setDescription(`**Prize:** ${data.prize}\n**Winners:** ${mentions}\n**Hosted by:** <@${data.hostId}>`)
             .setColor(0xffd700)
             .setFooter({ text: `${data.participants.length} participants` })
@@ -410,7 +405,7 @@ async function handleCommand(interaction) {
     if (sub === "cancel") {
       const msgId = interaction.options.getString("message_id");
       const data  = db.giveaways[msgId];
-      if (!data) return interaction.reply({ content: "❌ Giveaway not found.", flags: 64 });
+      if (!data) return interaction.reply({ content: "Giveaway not found.", flags: 64 });
 
       const timer = giveawayTimers.get(msgId);
       if (timer) { clearTimeout(timer); giveawayTimers.delete(msgId); }
@@ -422,7 +417,7 @@ async function handleCommand(interaction) {
         const msg = await ch.messages.fetch(msgId);
         await msg.edit({
           embeds: [new EmbedBuilder()
-            .setTitle("🚫 Giveaway Cancelled")
+            .setTitle("Giveaway Cancelled")
             .setDescription(`**Prize:** ${data.prize}\n\nCancelled by <@${interaction.user.id}>.`)
             .setColor(0xff0000).setTimestamp()],
           components: [giveawayEntryRow(true)],
@@ -431,35 +426,35 @@ async function handleCommand(interaction) {
 
       delete db.giveaways[msgId];
       saveDB(db);
-      return interaction.reply({ content: "✅ Giveaway cancelled.", flags: 64 });
+      return interaction.reply({ content: "Giveaway cancelled.", flags: 64 });
     }
   }
 
   // ── TOURNAMENT ──────────────────────────────────────────────────────────────
   if (cmd === "tournament") {
     if (!hasRole(interaction.member, TOURNAMENT_HOST_ROLE))
-      return interaction.reply({ content: "❌ Only Tournament Hosts can manage tournaments.", flags: 64 });
+      return interaction.reply({ content: "Only Tournament Hosts can manage tournaments.", flags: 64 });
 
     const sub = interaction.options.getSubcommand();
 
     if (sub === "host") {
       if (interaction.channelId !== TOURNAMENT_CHANNEL)
-        return interaction.reply({ content: `❌ Tournaments can only be hosted in <#${TOURNAMENT_CHANNEL}>.`, flags: 64 });
+        return interaction.reply({ content: `Tournaments can only be hosted in <#${TOURNAMENT_CHANNEL}>.`, flags: 64 });
 
-      const prize     = interaction.options.getString("prize");
-      const type      = interaction.options.getString("type");
+      const prize      = interaction.options.getString("prize");
+      const type       = interaction.options.getString("type");
       const serverLink = interaction.options.getString("server_link");
-      const bannedMap = interaction.options.getString("banned_map") ?? "None";
+      const bannedMap  = interaction.options.getString("banned_map") ?? "None";
       const maxPlayers = parseInt(type.split("v")[0]) * 2;
       const id = "MVCT-" + Date.now().toString(36).toUpperCase();
 
       const embed = buildTournamentEmbed(id, prize, type, bannedMap, serverLink, interaction.user.id, 0, maxPlayers);
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`t_signup_${id}`).setLabel("📋 Sign Up").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`t_rules_${id}`).setLabel("ℹ️ Rules").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`t_signup_${id}`).setLabel("Sign Up").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`t_rules_${id}`).setLabel("Rules").setStyle(ButtonStyle.Secondary),
       );
 
-      await interaction.reply({ content: "✅ Tournament hosted!", flags: 64 });
+      await interaction.reply({ content: "Tournament hosted!", flags: 64 });
       const msg = await interaction.channel.send({ content: `<@&${TOURNAMENT_HOST_ROLE}>`, embeds: [embed], components: [row] });
 
       db.tournaments[id] = {
@@ -473,7 +468,7 @@ async function handleCommand(interaction) {
       if (signupsCh) {
         await signupsCh.send({
           embeds: [new EmbedBuilder()
-            .setTitle(`📋 Tournament Open — ${id}`)
+            .setTitle(`Tournament Open — ${id}`)
             .setDescription(`**Prize:** ${prize}\n**Type:** ${type}\n**Banned Map:** ${bannedMap}\n\nPlayers Joined: **0 / ${maxPlayers}**`)
             .setColor(0x57f287).setTimestamp()],
         });
@@ -484,7 +479,7 @@ async function handleCommand(interaction) {
     if (sub === "cancel") {
       const id   = interaction.options.getString("tournament_id").toUpperCase();
       const data = db.tournaments[id];
-      if (!data) return interaction.reply({ content: `❌ Tournament \`${id}\` not found.`, flags: 64 });
+      if (!data) return interaction.reply({ content: `Tournament \`${id}\` not found.`, flags: 64 });
 
       data.active = false;
       try {
@@ -492,7 +487,7 @@ async function handleCommand(interaction) {
         const msg = await ch.messages.fetch(data.signupMessageId);
         await msg.edit({
           embeds: [new EmbedBuilder()
-            .setTitle("🚫 Tournament Cancelled")
+            .setTitle("Tournament Cancelled")
             .setDescription(`**${id}** cancelled by <@${interaction.user.id}>.`)
             .setColor(0xff0000).setTimestamp()],
           components: [],
@@ -501,22 +496,22 @@ async function handleCommand(interaction) {
 
       delete db.tournaments[id];
       saveDB(db);
-      return interaction.reply({ content: `✅ Tournament \`${id}\` cancelled.` });
+      return interaction.reply({ content: `Tournament \`${id}\` cancelled.` });
     }
   }
 
   // ── LEAGUE ──────────────────────────────────────────────────────────────────
   if (cmd === "league") {
     if (!hasRole(interaction.member, LEAGUE_HOST_ROLE))
-      return interaction.reply({ content: "❌ Only League Hosts can manage leagues.", flags: 64 });
+      return interaction.reply({ content: "Only League Hosts can manage leagues.", flags: 64 });
 
     const sub = interaction.options.getSubcommand();
 
     if (sub === "host") {
-      const format    = interaction.options.getString("format");
-      const matchType = interaction.options.getString("match_type");
-      const perks     = interaction.options.getString("perks");
-      const region    = interaction.options.getString("region");
+      const format     = interaction.options.getString("format");
+      const matchType  = interaction.options.getString("match_type");
+      const perks      = interaction.options.getString("perks");
+      const region     = interaction.options.getString("region");
       const maxPlayers = parseInt(format.split("v")[0]) * 2;
       const id = randomLeagueId();
 
@@ -525,8 +520,7 @@ async function handleCommand(interaction) {
         new ButtonBuilder().setCustomId(`league_join_${id}`).setLabel("Join League").setStyle(ButtonStyle.Primary)
       );
 
-      await interaction.reply({ content: "✅ League hosted!", flags: 64 });
-      await interaction.channel.send({ content: `<@&${LEAGUE_ROLE}> A new league is open — join now!` });
+      await interaction.reply({ content: "League hosted!", flags: 64 });
       const msg = await interaction.channel.send({ embeds: [embed], components: [row] });
 
       db.leagues[id] = {
@@ -542,14 +536,14 @@ async function handleCommand(interaction) {
     if (sub === "cancel") {
       const id   = interaction.options.getString("league_id").toUpperCase();
       const data = db.leagues[id];
-      if (!data) return interaction.reply({ content: `❌ League \`${id}\` not found.`, flags: 64 });
+      if (!data) return interaction.reply({ content: `League \`${id}\` not found.`, flags: 64 });
 
       try {
         const ch  = await client.channels.fetch(data.channelId);
         const msg = await ch.messages.fetch(data.messageId);
         await msg.edit({
           embeds: [new EmbedBuilder()
-            .setTitle("🚫 League Cancelled")
+            .setTitle("League Cancelled")
             .setDescription(`League **${id}** cancelled by <@${interaction.user.id}>.`)
             .setColor(0xff0000).setTimestamp()],
           components: [],
@@ -565,16 +559,16 @@ async function handleCommand(interaction) {
 
       delete db.leagues[id];
       saveDB(db);
-      return interaction.reply({ content: `✅ League \`${id}\` cancelled.` });
+      return interaction.reply({ content: `League \`${id}\` cancelled.` });
     }
 
     if (sub === "add") {
       const id     = interaction.options.getString("league_id").toUpperCase();
       const target = interaction.options.getUser("player");
       const data   = db.leagues[id];
-      if (!data)                           return interaction.reply({ content: `❌ League \`${id}\` not found.`, flags: 64 });
-      if (data.players.includes(target.id)) return interaction.reply({ content: `❌ <@${target.id}> is already in this league.`, flags: 64 });
-      if (data.players.length >= data.maxPlayers) return interaction.reply({ content: "❌ League is full.", flags: 64 });
+      if (!data)                            return interaction.reply({ content: `League \`${id}\` not found.`, flags: 64 });
+      if (data.players.includes(target.id)) return interaction.reply({ content: `<@${target.id}> is already in this league.`, flags: 64 });
+      if (data.players.length >= data.maxPlayers) return interaction.reply({ content: "League is full.", flags: 64 });
 
       data.players.push(target.id);
       saveDB(db);
@@ -583,12 +577,12 @@ async function handleCommand(interaction) {
         try {
           const thread = await client.channels.fetch(data.threadId);
           await thread.members.add(target.id);
-          await thread.send(`👋 <@${target.id}> was added by <@${interaction.user.id}>.`);
+          await thread.send(`<@${target.id}> was added by <@${interaction.user.id}>.`);
         } catch {}
       }
 
       await updateLeagueMessage(data);
-      await interaction.reply({ content: `✅ Added <@${target.id}> to league \`${id}\`.` });
+      await interaction.reply({ content: `Added <@${target.id}> to league \`${id}\`.` });
 
       if (data.players.length >= data.maxPlayers) await autoTeamUp(data, interaction.guild);
       return;
@@ -598,22 +592,22 @@ async function handleCommand(interaction) {
       const id     = interaction.options.getString("league_id").toUpperCase();
       const target = interaction.options.getUser("player");
       const data   = db.leagues[id];
-      if (!data)                            return interaction.reply({ content: `❌ League \`${id}\` not found.`, flags: 64 });
-      if (!data.players.includes(target.id)) return interaction.reply({ content: `❌ <@${target.id}> is not in this league.`, flags: 64 });
+      if (!data)                             return interaction.reply({ content: `League \`${id}\` not found.`, flags: 64 });
+      if (!data.players.includes(target.id)) return interaction.reply({ content: `<@${target.id}> is not in this league.`, flags: 64 });
 
-      data.players = data.players.filter((id) => id !== target.id);
+      data.players = data.players.filter((pid) => pid !== target.id);
       saveDB(db);
 
       if (data.threadId) {
         try {
           const thread = await client.channels.fetch(data.threadId);
           await thread.members.remove(target.id);
-          await thread.send(`👋 <@${target.id}> was removed by <@${interaction.user.id}>.`);
+          await thread.send(`<@${target.id}> was removed by <@${interaction.user.id}>.`);
         } catch {}
       }
 
       await updateLeagueMessage(data);
-      return interaction.reply({ content: `✅ Removed <@${target.id}> from league \`${id}\`.` });
+      return interaction.reply({ content: `Removed <@${target.id}> from league \`${id}\`.` });
     }
   }
 }
@@ -644,9 +638,9 @@ async function handleButton(interaction) {
   // ── TRYOUT: Close Ticket ─────────────────────────────────────────────────────
   if (id.startsWith("tryout_close_")) {
     if (!hasRole(interaction.member, TRYOUT_MANAGER_ROLE, TRYOUT_MANAGER_ROLE_2))
-      return interaction.reply({ content: "❌ Only Tryout Managers can close tickets.", flags: 64 });
+      return interaction.reply({ content: "Only Tryout Managers can close tickets.", flags: 64 });
 
-    await interaction.reply({ content: "🔒 Closing ticket in 5 seconds..." });
+    await interaction.reply({ content: "Closing ticket in 5 seconds..." });
     setTimeout(async () => {
       try { await interaction.channel.delete("Tryout ticket closed"); } catch {}
     }, 5000);
@@ -661,10 +655,10 @@ async function handleButton(interaction) {
     const userId = interaction.user.id;
     if (data.participants.includes(userId)) {
       data.participants = data.participants.filter((i) => i !== userId);
-      await interaction.reply({ content: "✅ You left the giveaway.", flags: 64 });
+      await interaction.reply({ content: "You left the giveaway.", flags: 64 });
     } else {
       data.participants.push(userId);
-      await interaction.reply({ content: "🎉 You entered the giveaway! Good luck!", flags: 64 });
+      await interaction.reply({ content: "You entered the giveaway! Good luck!", flags: 64 });
     }
     saveDB(db);
 
@@ -677,7 +671,7 @@ async function handleButton(interaction) {
   // ── TOURNAMENT: Rules ────────────────────────────────────────────────────────
   if (id.startsWith("t_rules_")) {
     return interaction.reply({
-      embeds: [new EmbedBuilder().setTitle("📜 Tournament Rules").setDescription(TOURNAMENT_RULES).setColor(0xfee75c)],
+      embeds: [new EmbedBuilder().setTitle("Tournament Rules").setDescription(TOURNAMENT_RULES).setColor(0xfee75c)],
       flags: 64,
     });
   }
@@ -686,13 +680,13 @@ async function handleButton(interaction) {
   if (id.startsWith("t_signup_")) {
     const tid  = id.replace("t_signup_", "");
     const data = db.tournaments[tid];
-    if (!data || !data.active) return interaction.reply({ content: "❌ This tournament is no longer active.", flags: 64 });
+    if (!data || !data.active) return interaction.reply({ content: "This tournament is no longer active.", flags: 64 });
 
     const already = data.signups.some((s) => s.discordId === interaction.user.id);
-    if (already) return interaction.reply({ content: "❌ You already signed up for this tournament.", flags: 64 });
+    if (already) return interaction.reply({ content: "You already signed up for this tournament.", flags: 64 });
 
     const accepted = data.signups.filter((s) => s.status === "accepted").length;
-    if (accepted >= data.maxPlayers) return interaction.reply({ content: "❌ This tournament is full.", flags: 64 });
+    if (accepted >= data.maxPlayers) return interaction.reply({ content: "This tournament is full.", flags: 64 });
 
     const modal = new ModalBuilder().setCustomId(`t_modal_${tid}`).setTitle("Tournament Sign Up");
     modal.addComponents(
@@ -714,13 +708,13 @@ async function handleButton(interaction) {
     const isAccept = id.startsWith("tsignup_accept_");
     const key      = id.replace("tsignup_accept_", "").replace("tsignup_decline_", "");
     const pending  = pendingSignups.get(key);
-    if (!pending) return interaction.reply({ content: "❌ This signup has expired.", flags: 64 });
+    if (!pending) return interaction.reply({ content: "This signup has expired.", flags: 64 });
 
     const { tid, entry } = pending;
     const data = db.tournaments[tid];
     pendingSignups.delete(key);
 
-    if (!data) return interaction.reply({ content: "❌ Tournament no longer exists.", flags: 64 });
+    if (!data) return interaction.reply({ content: "Tournament no longer exists.", flags: 64 });
 
     if (isAccept) {
       entry.status = "accepted";
@@ -729,26 +723,32 @@ async function handleButton(interaction) {
 
       const acceptedCount = data.signups.filter((s) => s.status === "accepted").length;
 
+      // Reply immediately — host clicked in a DM, further fetches could be slow
+      await interaction.reply({ content: `Accepted **${entry.robloxUsername}** — ${acceptedCount}/${data.maxPlayers} players.` });
+
+      // DM the accepted player — use client.users.fetch, not guild.members (this is a DM context)
       try {
-        const member = await interaction.guild.members.fetch(entry.discordId);
-        await member.send(
-          `✅ You've been **accepted** into tournament **${tid}**!\n\n**Prize:** ${data.prize}\n**Type:** ${data.type}\n**Server:** ${data.serverLink}\n\nGood luck! 🎮`
+        const user = await client.users.fetch(entry.discordId);
+        await user.send(
+          `You've been **accepted** into tournament **${tid}**!\n\n**Prize:** ${data.prize}\n**Type:** ${data.type}\n**Server:** ${data.serverLink}\n\nGood luck!`
         ).catch(() => {});
       } catch {}
 
-      await interaction.reply({ content: `✅ Accepted **${entry.robloxUsername}** — ${acceptedCount}/${data.maxPlayers} players.` });
-
       // Update signups channel
-      const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
-      if (signupsCh) {
-        const playerList = data.signups.filter((s) => s.status === "accepted")
-          .map((s, i) => `${i + 1}. ${s.robloxUsername} (${s.discordUsername})`).join("\n") || "None";
-        await signupsCh.send({
-          embeds: [new EmbedBuilder()
-            .setTitle(`📋 ${tid} — Signup Update`)
-            .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}\n\n**Players: ${acceptedCount} / ${data.maxPlayers}**\n\n${playerList}`)
-            .setColor(acceptedCount >= data.maxPlayers ? 0xff0000 : 0x57f287).setTimestamp()],
-        });
+      try {
+        const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
+        if (signupsCh) {
+          const playerList = data.signups.filter((s) => s.status === "accepted")
+            .map((s, i) => `${i + 1}. ${s.robloxUsername} (${s.discordUsername})`).join("\n") || "None";
+          await signupsCh.send({
+            embeds: [new EmbedBuilder()
+              .setTitle(`${tid} — Signup Update`)
+              .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}\n\n**Players: ${acceptedCount} / ${data.maxPlayers}**\n\n${playerList}`)
+              .setColor(acceptedCount >= data.maxPlayers ? 0xff0000 : 0x57f287).setTimestamp()],
+          });
+        }
+      } catch (err) {
+        console.error("Failed to update signups channel:", err);
       }
 
       // Update tournament embed
@@ -761,17 +761,20 @@ async function handleButton(interaction) {
           data.active = false;
           saveDB(db);
           components = [];
-          await ch.send(`🏆 Tournament **${tid}** is **FULL!** All ${data.maxPlayers} slots are filled.`);
+          await ch.send(`Tournament **${tid}** is **FULL!** All ${data.maxPlayers} slots are filled.`);
         }
         await msg.edit({ embeds: [updEmbed], components });
-      } catch {}
+      } catch (err) {
+        console.error("Failed to update tournament embed:", err);
+      }
 
     } else {
+      // DM the declined player
       try {
-        const member = await interaction.guild.members.fetch(entry.discordId);
-        await member.send(`❌ Your signup for tournament **${tid}** was **declined**. Contact the host for more info.`).catch(() => {});
+        const user = await client.users.fetch(entry.discordId);
+        await user.send(`Your signup for tournament **${tid}** was **declined**. Contact the host for more info.`).catch(() => {});
       } catch {}
-      await interaction.reply({ content: `❌ Declined **${entry.robloxUsername}**.` });
+      await interaction.reply({ content: `Declined **${entry.robloxUsername}**.` });
     }
 
     try { await interaction.message.edit({ components: [] }); } catch {}
@@ -782,31 +785,25 @@ async function handleButton(interaction) {
   if (id.startsWith("league_join_")) {
     const lid  = id.replace("league_join_", "");
     const data = db.leagues[lid];
-    if (!data || !data.active) return interaction.reply({ content: "❌ This league is no longer active.", flags: 64 });
-    if (data.players.includes(interaction.user.id)) return interaction.reply({ content: "❌ You are already in this league.", flags: 64 });
-    if (data.players.length >= data.maxPlayers) return interaction.reply({ content: "❌ This league is full.", flags: 64 });
+    if (!data || !data.active) return interaction.reply({ content: "This league is no longer active.", flags: 64 });
+    if (data.players.includes(interaction.user.id)) return interaction.reply({ content: "You are already in this league.", flags: 64 });
+    if (data.players.length >= data.maxPlayers) return interaction.reply({ content: "This league is full.", flags: 64 });
 
     data.players.push(interaction.user.id);
     saveDB(db);
+
+    // Reply immediately before any slow async work
+    await interaction.reply({ content: `You joined league **${lid}**! (${data.players.length}/${data.maxPlayers})`, flags: 64 });
 
     if (data.threadId) {
       try {
         const thread = await client.channels.fetch(data.threadId);
         await thread.members.add(interaction.user.id);
-        await thread.send(`👋 <@${interaction.user.id}> joined the league!`);
+        await thread.send(`<@${interaction.user.id}> joined the league!`);
       } catch {}
     }
 
     await updateLeagueMessage(data);
-    await interaction.reply({ content: `✅ You joined league **${lid}**! (${data.players.length}/${data.maxPlayers})`, flags: 64 });
-
-    // Ping the league role to notify a new player joined
-    try {
-      const leagueCh = await client.channels.fetch(data.channelId);
-      await leagueCh.send({ content: `<@&${LEAGUE_ROLE}> <@${interaction.user.id}> joined league **${lid}**! (${data.players.length}/${data.maxPlayers} players)` });
-    } catch (err) {
-      console.error("Failed to send league role ping on join:", err);
-    }
 
     if (data.players.length >= data.maxPlayers && data.active) {
       await autoTeamUp(data, interaction.guild);
@@ -830,6 +827,9 @@ async function handleModal(interaction) {
     const username = interaction.user.username;
     const guild    = interaction.guild;
 
+    // Defer immediately — channel creation can take >3 seconds and will expire the token
+    await interaction.deferReply({ ephemeral: true });
+
     const ticketName = `tryout-${username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20)}-${Date.now().toString(36)}`;
 
     let ticketChannel;
@@ -839,25 +839,23 @@ async function handleModal(interaction) {
         type: ChannelType.GuildText,
         permissionOverwrites: [
           { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
           { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
           { id: TRYOUT_MANAGER_ROLE,   allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
           { id: TRYOUT_MANAGER_ROLE_2, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
         ],
       });
-      console.log(`✅ Created tryout ticket channel ${ticketChannel.id} for user ${userId}`);
     } catch (err) {
-      console.error(`❌ Failed to create ticket channel for user ${userId} in guild ${guild.id}:`, err.message, err.code ?? "");
-      return interaction.reply({ content: "❌ Failed to create ticket channel. Please contact a staff member.", flags: 64 });
+      console.error("Failed to create ticket channel:", err);
+      return interaction.editReply({ content: "Failed to create ticket channel. Please contact a staff member." });
     }
 
     const embed = new EmbedBuilder()
-      .setTitle("🎫 Tryout Request")
+      .setTitle("Tryout Request")
       .setColor(0x5865f2)
       .addFields(
-        { name: "Discord User",      value: `<@${userId}>`, inline: true },
-        { name: "Roblox Username",   value: roblox,         inline: true },
-        { name: "Platform",          value: platform,       inline: true },
+        { name: "Discord User",        value: `<@${userId}>`, inline: true },
+        { name: "Roblox Username",     value: roblox,         inline: true },
+        { name: "Platform",            value: platform,       inline: true },
         { name: "Private Server Link", value: server },
       )
       .setTimestamp()
@@ -873,14 +871,14 @@ async function handleModal(interaction) {
       components: [closeRow],
     });
 
-    return interaction.reply({ content: `✅ Ticket created: ${ticketChannel}`, flags: 64 });
+    return interaction.editReply({ content: `Ticket created: ${ticketChannel}` });
   }
 
   // ── TOURNAMENT SIGNUP MODAL ───────────────────────────────────────────────────
   if (id.startsWith("t_modal_")) {
-    const tid    = id.replace("t_modal_", "");
-    const data   = db.tournaments[tid];
-    if (!data || !data.active) return interaction.reply({ content: "❌ Tournament no longer active.", flags: 64 });
+    const tid  = id.replace("t_modal_", "");
+    const data = db.tournaments[tid];
+    if (!data || !data.active) return interaction.reply({ content: "Tournament no longer active.", flags: 64 });
 
     const roblox  = interaction.fields.getTextInputValue("t_roblox");
     const rank    = interaction.fields.getTextInputValue("t_rank");
@@ -891,28 +889,28 @@ async function handleModal(interaction) {
     pendingSignups.set(key, { tid, entry });
 
     const formEmbed = new EmbedBuilder()
-      .setTitle("📋 New Tournament Signup")
+      .setTitle("New Tournament Signup")
       .setColor(0x5865f2)
       .addFields(
-        { name: "Tournament",      value: tid,           inline: true },
-        { name: "Roblox Username", value: roblox,        inline: true },
-        { name: "Rank",            value: rank,          inline: true },
-        { name: "Discord",         value: discord,       inline: true },
-        { name: "Mention",         value: `<@${interaction.user.id}>`, inline: true },
+        { name: "Tournament",      value: tid,                            inline: true },
+        { name: "Roblox Username", value: roblox,                        inline: true },
+        { name: "Rank",            value: rank,                          inline: true },
+        { name: "Discord",         value: discord,                       inline: true },
+        { name: "Mention",         value: `<@${interaction.user.id}>`,   inline: true },
       )
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`tsignup_accept_${key}`).setLabel("✅ Accept").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`tsignup_decline_${key}`).setLabel("❌ Decline").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`tsignup_accept_${key}`).setLabel("Accept").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`tsignup_decline_${key}`).setLabel("Decline").setStyle(ButtonStyle.Danger),
     );
 
     try {
       const host = await client.users.fetch(data.hostId);
       await host.send({ embeds: [formEmbed], components: [row] });
-      return interaction.reply({ content: "✅ Signup submitted! The host will review it shortly.", flags: 64 });
+      return interaction.reply({ content: "Signup submitted! The host will review it shortly.", flags: 64 });
     } catch {
-      return interaction.reply({ content: "⚠️ Signup submitted but couldn't DM the host (DMs may be closed).", flags: 64 });
+      return interaction.reply({ content: "Signup submitted but couldn't DM the host (DMs may be closed).", flags: 64 });
     }
   }
 }
@@ -941,12 +939,12 @@ async function endGiveaway(messageId) {
   if (eligible.length === 0) {
     await msg.edit({
       embeds: [new EmbedBuilder()
-        .setTitle("🎉 Giveaway Ended")
+        .setTitle("Giveaway Ended")
         .setDescription(`**Prize:** ${data.prize}\n\nNo eligible participants — no winner this time.`)
         .setColor(0xff0000).setTimestamp()],
       components: [giveawayEntryRow(true)],
     });
-    await channel.send(`🎉 **Giveaway Ended!** No valid participants entered for **${data.prize}**.`);
+    await channel.send(`Giveaway Ended! No valid participants entered for **${data.prize}**.`);
     return;
   }
 
@@ -966,10 +964,10 @@ async function endGiveaway(messageId) {
       .setTitle("Giveaway Ended")
       .setColor(0x5865f2)
       .addFields(
-        { name: "Prize",         value: data.prize,                                      inline: false },
-        { name: "Winners",       value: mentions,                                        inline: false },
-        { name: "Total Entries", value: String(data.participants.length),                inline: true  },
-        { name: "Hosted By",     value: `<@${data.hostId}>`,                             inline: true  },
+        { name: "Prize",         value: data.prize,                       inline: false },
+        { name: "Winners",       value: mentions,                         inline: false },
+        { name: "Total Entries", value: String(data.participants.length), inline: true  },
+        { name: "Hosted By",     value: `<@${data.hostId}>`,              inline: true  },
       )
       .setTimestamp()],
     components: [giveawayEntryRow(true)],
@@ -982,7 +980,7 @@ async function endGiveaway(messageId) {
 
 function buildGiveawayEmbed(prize, winners, endsAt, hostId, participants) {
   return new EmbedBuilder()
-    .setTitle("🎉 GIVEAWAY 🎉")
+    .setTitle("GIVEAWAY")
     .setDescription(
       `**Prize:** ${prize}\n**Winners:** ${winners}\n**Ends:** <t:${Math.floor(endsAt / 1000)}:R>\n**Hosted by:** <@${hostId}>\n\nClick the button below to enter!`
     )
@@ -995,7 +993,7 @@ function giveawayEntryRow(disabled) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("giveaway_enter")
-      .setLabel(disabled ? "🎉 Giveaway Ended" : "🎉 Enter Giveaway")
+      .setLabel(disabled ? "Giveaway Ended" : "Enter Giveaway")
       .setStyle(disabled ? ButtonStyle.Secondary : ButtonStyle.Primary)
       .setDisabled(disabled)
   );
@@ -1006,17 +1004,17 @@ function giveawayEntryRow(disabled) {
 // ═══════════════════════════════════════════════════════════════════════════════
 function buildTournamentEmbed(id, prize, type, bannedMap, serverLink, hostId, current, max) {
   return new EmbedBuilder()
-    .setTitle("🏆 Tournament Hosted!")
+    .setTitle("Tournament Hosted!")
     .setColor(0xfee75c)
     .addFields(
-      { name: "Prize",        value: prize,                      inline: true },
-      { name: "Type",         value: type,                       inline: true },
-      { name: "Banned Map",   value: bannedMap,                  inline: true },
-      { name: "Host",         value: `<@${hostId}>`,             inline: true },
-      { name: "Players",      value: `${current} / ${max}`,      inline: true },
-      { name: "Server Link",  value: serverLink,                 inline: true },
-      { name: "Tournament ID", value: `\`${id}\``,               inline: true },
-      { name: "Rules",        value: TOURNAMENT_RULES },
+      { name: "Prize",         value: prize,                 inline: true },
+      { name: "Type",          value: type,                  inline: true },
+      { name: "Banned Map",    value: bannedMap,             inline: true },
+      { name: "Host",          value: `<@${hostId}>`,        inline: true },
+      { name: "Players",       value: `${current} / ${max}`, inline: true },
+      { name: "Server Link",   value: serverLink,            inline: true },
+      { name: "Tournament ID", value: `\`${id}\``,           inline: true },
+      { name: "Rules",         value: TOURNAMENT_RULES },
     )
     .setTimestamp()
     .setFooter({ text: `Cancel: /tournament cancel ${id}` });
@@ -1043,43 +1041,23 @@ async function autoTeamUp(data, guild) {
   const team1    = shuffled.slice(0, half);
   const team2    = shuffled.slice(half);
 
-  // Create private thread if not exists
   if (!data.threadId) {
     try {
       const ch = await client.channels.fetch(data.channelId);
-
-      // Attempt to create a private thread first; fall back to public if the
-      // server boost level doesn't support private threads.
-      let thread;
-      try {
-        thread = await ch.threads.create({
-          name: `🏆 League ${data.id}`,
-          type: ChannelType.PrivateThread,
-          invitable: false,
-          reason: `Private thread for league ${data.id}`,
-        });
-        console.log(`✅ Created private thread ${thread.id} for league ${data.id}`);
-      } catch (privateErr) {
-        console.warn(`⚠️ Private thread creation failed for league ${data.id}, falling back to public thread:`, privateErr.message);
-        thread = await ch.threads.create({
-          name: `🏆 League ${data.id}`,
-          type: ChannelType.PublicThread,
-          reason: `Thread for league ${data.id}`,
-        });
-        console.log(`✅ Created public thread ${thread.id} for league ${data.id}`);
-      }
-
+      const thread = await ch.threads.create({
+        name: `League ${data.id}`,
+        type: ChannelType.PrivateThread,
+        invitable: false,
+        reason: `Private thread for league ${data.id}`,
+      });
       data.threadId = thread.id;
       saveDB(db);
 
-      // Add all players to the thread
       for (const playerId of data.players) {
-        await thread.members.add(playerId).catch((err) => {
-          console.warn(`⚠️ Could not add player ${playerId} to league thread:`, err.message);
-        });
+        await thread.members.add(playerId).catch(() => {});
       }
     } catch (err) {
-      console.error("❌ Failed to create league thread:", err);
+      console.error("Failed to create league thread:", err);
     }
   }
 
@@ -1087,16 +1065,16 @@ async function autoTeamUp(data, guild) {
   const t2Mentions = team2.map((id) => `<@${id}>`).join(", ");
 
   const teamEmbed = new EmbedBuilder()
-    .setTitle(`🏆 League ${data.id} — Teams Auto-Assigned!`)
+    .setTitle(`League ${data.id} — Teams Auto-Assigned!`)
     .setColor(0x57f287)
-    .setDescription("The league is full! Teams have been randomly assigned. Good luck! 🎮")
+    .setDescription("The league is full! Teams have been randomly assigned. Good luck!")
     .addFields(
-      { name: "🔵 Team 1", value: t1Mentions, inline: true },
-      { name: "🔴 Team 2", value: t2Mentions, inline: true },
-      { name: "Format",    value: data.format,    inline: true },
+      { name: "Team 1",     value: t1Mentions,    inline: true },
+      { name: "Team 2",     value: t2Mentions,    inline: true },
+      { name: "Format",     value: data.format,   inline: true },
       { name: "Match Type", value: data.matchType, inline: true },
-      { name: "Perks",     value: data.perks,     inline: true },
-      { name: "Region",    value: data.region,    inline: true },
+      { name: "Perks",      value: data.perks,    inline: true },
+      { name: "Region",     value: data.region,   inline: true },
     )
     .setTimestamp();
 
@@ -1110,7 +1088,6 @@ async function autoTeamUp(data, guild) {
     } catch {}
   }
 
-  // Update main league message to show full
   try {
     const ch  = await client.channels.fetch(data.channelId);
     const msg = await ch.messages.fetch(data.messageId);
@@ -1126,12 +1103,12 @@ function buildLeagueEmbed(id, format, matchType, perks, region, hostId, maxPlaye
     .setTitle("League Available")
     .setColor(0x5865f2)
     .addFields(
-      { name: "Format",     value: format,                                       inline: true },
-      { name: "Match Type", value: matchType,                                    inline: true },
-      { name: "Perks",      value: perks,                                        inline: true },
-      { name: "Region",     value: region,                                       inline: true },
-      { name: "Host",       value: `<@${hostId}>`,                               inline: true },
-      { name: "Spots Left", value: formatSpotsLeft(players.length, maxPlayers),  inline: true },
+      { name: "Format",     value: format,                                        inline: true },
+      { name: "Match Type", value: matchType,                                     inline: true },
+      { name: "Perks",      value: perks,                                         inline: true },
+      { name: "Region",     value: region,                                        inline: true },
+      { name: "Host",       value: `<@${hostId}>`,                                inline: true },
+      { name: "Spots Left", value: formatSpotsLeft(players.length, maxPlayers),   inline: true },
       { name: "Players",    value: players.map((id) => `<@${id}>`).join(", ") || "None" },
       { name: "League ID",  value: `\`${id}\`` },
     )
@@ -1145,7 +1122,7 @@ function randomLeagueId() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  KEEPALIVE HTTP SERVER (required for workflow port binding)
+//  KEEPALIVE HTTP SERVER
 // ═══════════════════════════════════════════════════════════════════════════════
 http.createServer((req, res) => res.end("MVC League Bot — Online")).listen(PORT, () => {
   console.log(`HTTP keepalive on port ${PORT}`);
@@ -1155,7 +1132,7 @@ http.createServer((req, res) => res.end("MVC League Bot — Online")).listen(POR
 //  LOGIN
 // ═══════════════════════════════════════════════════════════════════════════════
 if (!TOKEN) {
-  console.error("❌ DISCORD_BOT_TOKEN is not set.");
+  console.error("DISCORD_BOT_TOKEN is not set.");
   process.exit(1);
 }
 
