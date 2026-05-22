@@ -139,6 +139,7 @@ const commands = [
               { name: "4v4", value: "4v4" },
             ],
           },
+          { name: "players",     description: "Max players allowed", type: ApplicationCommandOptionType.Integer, required: true, min_value: 1, max_value: 100 },
           { name: "server_link", description: "Server invite link",   type: ApplicationCommandOptionType.String,  required: true },
           { name: "banned_map",  description: "Banned map (optional)", type: ApplicationCommandOptionType.String,  required: false },
         ],
@@ -321,16 +322,17 @@ async function handleCommand(interaction) {
     if (!channel) return interaction.reply({ content: "Could not find the tryout channel.", flags: 64 });
 
     const embed = new EmbedBuilder()
-      .setTitle("TRYOUT REQUEST")
-      .setDescription("Click the button below to schedule a tryout")
-      .setColor(0x5865f2);
+      .setTitle("📅 SCHEDULE TRYOUT")
+      .setDescription("Click the button below to schedule your tryout")
+      .setColor(0x5865f2)
+      .setFooter({ text: "Your application will be reviewed by our staff team" });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("tryout_open_ticket").setLabel("SCHEDULE TRYOUT").setStyle(ButtonStyle.Primary).setEmoji("📅")
     );
 
     await channel.send({ embeds: [embed], components: [row] });
-    return interaction.reply({ content: "Tryout panel sent!", flags: 64 });
+    return interaction.reply({ content: "✅ Tryout panel sent!", flags: 64 });
   }
 
   // ── GIVEAWAY ──────────────────────────────────────────────────────────────
@@ -445,9 +447,9 @@ async function handleCommand(interaction) {
 
       const prize      = interaction.options.getString("prize");
       const type       = interaction.options.getString("type");
+      const maxPlayers = interaction.options.getInteger("players");
       const serverLink = interaction.options.getString("server_link");
       const bannedMap  = interaction.options.getString("banned_map") ?? "None";
-      const maxPlayers = parseInt(type.split("v")[0]) * 2;
       const id = "MVCT-" + Date.now().toString(36).toUpperCase();
 
       const embed = buildTournamentEmbed(id, prize, type, bannedMap, serverLink, interaction.user.id, 0, maxPlayers);
@@ -457,7 +459,7 @@ async function handleCommand(interaction) {
       );
 
       await interaction.reply({ content: "Tournament hosted!", flags: 64 });
-      const msg = await interaction.channel.send({ content: `<@&${TOURNAMENT_HOST_ROLE}>`, embeds: [embed], components: [row] });
+      const msg = await interaction.channel.send({ embeds: [embed], components: [row] });
 
       db.tournaments[id] = {
         id, prize, type, bannedMap, serverLink,
@@ -745,29 +747,22 @@ async function handleButton(interaction) {
 
     const acceptedCount = data.signups.filter((s) => s.status === "accepted").length;
 
-    await interaction.reply({ content: `Accepted **${entry.robloxUsername}** — ${acceptedCount}/${data.maxPlayers} players.`, flags: 64 });
+    await interaction.reply({ content: `✅ Accepted **${entry.robloxUsername}** — ${acceptedCount}/${data.maxPlayers} players.`, flags: 64 });
 
-    // Update signups channel with accepted list
+    // Update signups channel
     try {
       const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
       if (signupsCh) {
-        const accepted = data.signups.filter((s) => s.status === "accepted")
-          .map((s, i) => `${i + 1}. **${s.robloxUsername}** (${s.discordUsername})`)
-          .join("\n") || "None";
-
-        const declined = data.signups.filter((s) => s.status === "declined")
-          .map((s) => `❌ **${s.robloxUsername}** - ${s.declineReason || "No reason provided"}`)
-          .join("\n") || "None";
-
         await signupsCh.send({
           embeds: [new EmbedBuilder()
-            .setTitle(`${tid} — Sign Up Update`)
-            .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}`)
+            .setTitle(tid)
             .addFields(
-              { name: `✅ Accepted (${acceptedCount}/${data.maxPlayers})`, value: accepted, inline: false },
-              { name: "❌ Declined", value: declined, inline: false }
+              { name: "Discord user", value: `<@${entry.discordId}>`, inline: false },
+              { name: "Roblox user", value: entry.robloxUsername, inline: false },
+              { name: "Rank", value: entry.rank, inline: false },
+              { name: "Status", value: "✅ **ACCEPTED**", inline: false }
             )
-            .setColor(acceptedCount >= data.maxPlayers ? 0xff0000 : 0x57f287)
+            .setColor(0x57f287)
             .setTimestamp()],
         });
       }
@@ -881,6 +876,7 @@ async function handleModal(interaction) {
       ticketChannel = await guild.channels.create({
         name: ticketName,
         type: ChannelType.GuildText,
+        parent: null,
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
           { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
@@ -890,7 +886,7 @@ async function handleModal(interaction) {
       });
     } catch (err) {
       console.error("Failed to create ticket channel:", err);
-      return interaction.editReply({ content: "Failed to create ticket channel. Please contact a staff member." });
+      return interaction.editReply({ content: "❌ Failed to create ticket channel. Please contact a staff member." });
     }
 
     const embed = new EmbedBuilder()
@@ -898,9 +894,9 @@ async function handleModal(interaction) {
       .setColor(0x5865f2)
       .addFields(
         { name: "Discord User",        value: `<@${userId}>`, inline: true },
-        { name: "Roblox Username",     value: roblox,         inline: true },
-        { name: "Platform",            value: platform,       inline: true },
-        { name: "Private Server Link", value: server },
+        { name: "Roblox Username",     value: `**${roblox}**`,         inline: true },
+        { name: "Platform",            value: `**${platform}**`,       inline: true },
+        { name: "Private Server Link", value: `[Server](${server})`, inline: false }
       )
       .setTimestamp()
       .setFooter({ text: `Ticket by ${username}` });
@@ -915,10 +911,10 @@ async function handleModal(interaction) {
       components: [closeRow],
     });
 
-    // Send notification to managers
-    await ticketChannel.send(`<@&${TRYOUT_MANAGER_ROLE}> <@&${TRYOUT_MANAGER_ROLE_2}> New tryout request!`);
+    // Send notification to managers in a separate message
+    await ticketChannel.send(`<@&${TRYOUT_MANAGER_ROLE}> <@&${TRYOUT_MANAGER_ROLE_2}> New tryout request from <@${userId}>!`);
 
-    return interaction.editReply({ content: `Ticket created: ${ticketChannel}` });
+    return interaction.editReply({ content: `✅ Ticket created: ${ticketChannel}` });
   }
 
   // ── TOURNAMENT SIGNUP MODAL ────────────────────────────────────────────────
@@ -955,9 +951,9 @@ async function handleModal(interaction) {
     try {
       const host = await client.users.fetch(data.hostId);
       await host.send({ embeds: [formEmbed], components: [row] });
-      return interaction.reply({ content: "Signup submitted! The host will review it shortly.", flags: 64 });
+      return interaction.reply({ content: "✅ Signup submitted! The host will review it shortly.", flags: 64 });
     } catch {
-      return interaction.reply({ content: "Signup submitted but couldn't DM the host (DMs may be closed).", flags: 64 });
+      return interaction.reply({ content: "✅ Signup submitted but couldn't DM the host (DMs may be closed).", flags: 64 });
     }
   }
 
@@ -981,29 +977,23 @@ async function handleModal(interaction) {
     data.signups.push(entry);
     saveDB(db);
 
-    await interaction.reply({ content: `Declined **${entry.robloxUsername}** - Reason: ${reason}`, flags: 64 });
+    await interaction.reply({ content: `❌ Declined **${entry.robloxUsername}** - Reason: ${reason}`, flags: 64 });
 
-    // Update signups channel with full list
+    // Update signups channel
     try {
       const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
       if (signupsCh) {
-        const accepted = data.signups.filter((s) => s.status === "accepted")
-          .map((s, i) => `${i + 1}. **${s.robloxUsername}** (${s.discordUsername})`)
-          .join("\n") || "None";
-
-        const declined = data.signups.filter((s) => s.status === "declined")
-          .map((s) => `❌ **${s.robloxUsername}** - ${s.declineReason || "No reason provided"}`)
-          .join("\n") || "None";
-
         await signupsCh.send({
           embeds: [new EmbedBuilder()
-            .setTitle(`${tid} — Sign Up Update`)
-            .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}`)
+            .setTitle(tid)
             .addFields(
-              { name: `✅ Accepted (${data.signups.filter((s) => s.status === "accepted").length}/${data.maxPlayers})`, value: accepted, inline: false },
-              { name: "❌ Declined", value: declined, inline: false }
+              { name: "Discord user", value: `<@${entry.discordId}>`, inline: false },
+              { name: "Roblox user", value: entry.robloxUsername, inline: false },
+              { name: "Rank", value: entry.rank, inline: false },
+              { name: "Status", value: "❌ **DECLINED**", inline: false },
+              { name: "Reason", value: reason, inline: false }
             )
-            .setColor(0x57f287)
+            .setColor(0xff0000)
             .setTimestamp()],
         });
       }
