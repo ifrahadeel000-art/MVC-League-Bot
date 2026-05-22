@@ -30,8 +30,9 @@ const TRYOUT_MANAGER_ROLE_2  = "1491729945062277220";
 const GIVEAWAY_HOST_ROLE     = "1503089031649431582";
 const TOURNAMENT_HOST_ROLE   = "1503089031649431582";
 const TOURNAMENT_CHANNEL     = "1462389214313451561";
-const MVCT_SIGNUPS_CHANNEL   = "1462389355568959529";
+const MVCT_SIGNUPS_CHANNEL   = "1507450603540840652";
 const LEAGUE_HOST_ROLE       = "1503089031649431582";
+const LEAGUE_ROLE            = "1500068561174003853";
 
 const TOURNAMENT_RULES = `**Tournament Disclaimers**
 
@@ -62,6 +63,7 @@ const db = loadDB();
 // ─── IN-MEMORY RUNTIME STATE ───────────────────────────────────────────────────
 const giveawayTimers  = new Map();
 const pendingSignups  = new Map();
+const pendingDeclines = new Map();
 const spamMap         = new Map();
 
 // ─── HELPERS ───────────────────────────────────────────────────────────[...]
@@ -241,7 +243,7 @@ const client = new Client({
 });
 
 // ─── READY ────────────────────────────────────────────────────────────[...]
-client.once("clientReady", async (c) => {
+client.once("ready", async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   try {
     await registerCommands();
@@ -320,7 +322,7 @@ async function handleCommand(interaction) {
 
     const embed = new EmbedBuilder()
       .setTitle("TRYOUT REQUEST")
-      .setDescription("To create a ticket use the Create ticket button")
+      .setDescription("Click the button below to schedule a tryout")
       .setColor(0x5865f2);
 
     const row = new ActionRowBuilder().addComponents(
@@ -467,6 +469,7 @@ async function handleCommand(interaction) {
       const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
       if (signupsCh) {
         await signupsCh.send({
+          content: "@everyone",
           embeds: [new EmbedBuilder()
             .setTitle(`Tournament Open — ${id}`)
             .setDescription(`**Prize:** ${prize}\n**Type:** ${type}\n**Banned Map:** ${bannedMap}\n\nPlayers Joined: **0 / ${maxPlayers}**`)
@@ -530,6 +533,27 @@ async function handleCommand(interaction) {
         threadId: null, active: true,
       };
       saveDB(db);
+
+      // Create private thread and ping the league role in a separate message
+      try {
+        const thread = await msg.channel.threads.create({
+          name: `League ${id}`,
+          type: ChannelType.PrivateThread,
+          invitable: false,
+          reason: `Private thread for league ${id}`,
+        });
+        db.leagues[id].threadId = thread.id;
+        saveDB(db);
+
+        // Add host to thread
+        await thread.members.add(interaction.user.id).catch(() => {});
+
+        // Send ping message in separate message
+        await msg.channel.send(`<@&${LEAGUE_ROLE}> New league available: **${id}**`);
+      } catch (err) {
+        console.error(`Failed to create league thread for ${id}:`, err);
+      }
+
       return;
     }
 
@@ -620,16 +644,16 @@ async function handleButton(interaction) {
 
   // ── TRYOUT: Open Ticket ───────────────────────────────────────────────────
   if (id === "tryout_open_ticket") {
-    const modal = new ModalBuilder().setCustomId("tryout_modal").setTitle("Fill this out");
+    const modal = new ModalBuilder().setCustomId("tryout_modal").setTitle("Schedule Tryout");
     modal.addComponents(
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId("tryout_roblox").setLabel("Roblox username :").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder("enter your username")
+        new TextInputBuilder().setCustomId("tryout_roblox").setLabel("Roblox username").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder("enter your username")
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId("tryout_platform").setLabel("Platform").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder("PC/MOB/XBOX")
       ),
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId("tryout_server").setLabel("Paste your private server link").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder("paste here")
+        new TextInputBuilder().setCustomId("tryout_server").setLabel("Private server link").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder("paste server link here")
       ),
     );
     return interaction.showModal(modal);
@@ -647,7 +671,7 @@ async function handleButton(interaction) {
     return;
   }
 
-  // ── GIVEAWAY: Enter ──────────────────────────────────��────────────────────
+  // ── GIVEAWAY: Enter ──────────────────────────────────────────────────────
   if (id === "giveaway_enter") {
     const data = db.giveaways[interaction.message.id];
     if (!data || data.ended) return interaction.reply({ content: "This giveaway has already ended.", flags: 64 });
@@ -703,10 +727,9 @@ async function handleButton(interaction) {
     return interaction.showModal(modal);
   }
 
-  // ── TOURNAMENT: Accept / Decline ───────────────────────────────────────────
-  if (id.startsWith("tsignup_accept_") || id.startsWith("tsignup_decline_")) {
-    const isAccept = id.startsWith("tsignup_accept_");
-    const key      = id.replace("tsignup_accept_", "").replace("tsignup_decline_", "");
+  // ── TOURNAMENT: Accept ───────────────────────────────────────────────────
+  if (id.startsWith("tsignup_accept_")) {
+    const key      = id.replace("tsignup_accept_", "");
     const pending  = pendingSignups.get(key);
     if (!pending) return interaction.reply({ content: "This signup has expired.", flags: 64 });
 
@@ -716,69 +739,92 @@ async function handleButton(interaction) {
 
     if (!data) return interaction.reply({ content: "Tournament no longer exists.", flags: 64 });
 
-    if (isAccept) {
-      entry.status = "accepted";
-      data.signups.push(entry);
-      saveDB(db);
+    entry.status = "accepted";
+    data.signups.push(entry);
+    saveDB(db);
 
-      const acceptedCount = data.signups.filter((s) => s.status === "accepted").length;
+    const acceptedCount = data.signups.filter((s) => s.status === "accepted").length;
 
-      // Reply immediately — host clicked in a DM, further fetches could be slow
-      await interaction.reply({ content: `Accepted **${entry.robloxUsername}** — ${acceptedCount}/${data.maxPlayers} players.` });
+    await interaction.reply({ content: `Accepted **${entry.robloxUsername}** — ${acceptedCount}/${data.maxPlayers} players.`, flags: 64 });
 
-      // DM the accepted player — use client.users.fetch, not guild.members (this is a DM context)
-      try {
-        const user = await client.users.fetch(entry.discordId);
-        await user.send(
-          `You've been **accepted** into tournament **${tid}**!\n\n**Prize:** ${data.prize}\n**Type:** ${data.type}\n**Server:** ${data.serverLink}\n\nGood luck!`
-        ).catch(() => {});
-      } catch {}
+    // Update signups channel with accepted list
+    try {
+      const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
+      if (signupsCh) {
+        const accepted = data.signups.filter((s) => s.status === "accepted")
+          .map((s, i) => `${i + 1}. **${s.robloxUsername}** (${s.discordUsername})`)
+          .join("\n") || "None";
 
-      // Update signups channel
-      try {
-        const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
-        if (signupsCh) {
-          const playerList = data.signups.filter((s) => s.status === "accepted")
-            .map((s, i) => `${i + 1}. ${s.robloxUsername} (${s.discordUsername})`).join("\n") || "None";
-          await signupsCh.send({
-            embeds: [new EmbedBuilder()
-              .setTitle(`${tid} — Signup Update`)
-              .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}\n\n**Players: ${acceptedCount} / ${data.maxPlayers}**\n\n${playerList}`)
-              .setColor(acceptedCount >= data.maxPlayers ? 0xff0000 : 0x57f287).setTimestamp()],
-          });
-        }
-      } catch (err) {
-        console.error("Failed to update signups channel:", err);
+        const declined = data.signups.filter((s) => s.status === "declined")
+          .map((s) => `❌ **${s.robloxUsername}** - ${s.declineReason || "No reason provided"}`)
+          .join("\n") || "None";
+
+        await signupsCh.send({
+          embeds: [new EmbedBuilder()
+            .setTitle(`${tid} — Sign Up Update`)
+            .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}`)
+            .addFields(
+              { name: `✅ Accepted (${acceptedCount}/${data.maxPlayers})`, value: accepted, inline: false },
+              { name: "❌ Declined", value: declined, inline: false }
+            )
+            .setColor(acceptedCount >= data.maxPlayers ? 0xff0000 : 0x57f287)
+            .setTimestamp()],
+        });
       }
-
-      // Update tournament embed
-      try {
-        const ch  = await client.channels.fetch(data.channelId);
-        const msg = await ch.messages.fetch(data.signupMessageId);
-        const updEmbed = buildTournamentEmbed(data.id, data.prize, data.type, data.bannedMap, data.serverLink, data.hostId, acceptedCount, data.maxPlayers);
-        let components = msg.components;
-        if (acceptedCount >= data.maxPlayers) {
-          data.active = false;
-          saveDB(db);
-          components = [];
-          await ch.send(`Tournament **${tid}** is **FULL!** All ${data.maxPlayers} slots are filled.`);
-        }
-        await msg.edit({ embeds: [updEmbed], components });
-      } catch (err) {
-        console.error("Failed to update tournament embed:", err);
-      }
-
-    } else {
-      // DM the declined player
-      try {
-        const user = await client.users.fetch(entry.discordId);
-        await user.send(`Your signup for tournament **${tid}** was **declined**. Contact the host for more info.`).catch(() => {});
-      } catch {}
-      await interaction.reply({ content: `Declined **${entry.robloxUsername}**.` });
+    } catch (err) {
+      console.error("Failed to update signups channel:", err);
     }
+
+    // Update tournament embed
+    try {
+      const ch  = await client.channels.fetch(data.channelId);
+      const msg = await ch.messages.fetch(data.signupMessageId);
+      const updEmbed = buildTournamentEmbed(data.id, data.prize, data.type, data.bannedMap, data.serverLink, data.hostId, acceptedCount, data.maxPlayers);
+      let components = msg.components;
+      if (acceptedCount >= data.maxPlayers) {
+        data.active = false;
+        saveDB(db);
+        components = [];
+        await ch.send(`Tournament **${tid}** is **FULL!** All ${data.maxPlayers} slots are filled.`);
+      }
+      await msg.edit({ embeds: [updEmbed], components });
+    } catch (err) {
+      console.error("Failed to update tournament embed:", err);
+    }
+
+    // DM accepted player
+    try {
+      const user = await client.users.fetch(entry.discordId);
+      await user.send(
+        `✅ You've been **accepted** into tournament **${tid}**!\n\n**Prize:** ${data.prize}\n**Type:** ${data.type}\n**Server:** ${data.serverLink}\n\nGood luck!`
+      ).catch(() => {});
+    } catch {}
 
     try { await interaction.message.edit({ components: [] }); } catch {}
     return;
+  }
+
+  // ── TOURNAMENT: Decline (Show Modal) ──────────────────────────────────────
+  if (id.startsWith("tsignup_decline_")) {
+    const key = id.replace("tsignup_decline_", "");
+    const pending = pendingSignups.get(key);
+    if (!pending) return interaction.reply({ content: "This signup has expired.", flags: 64 });
+
+    // Store the key temporarily for the modal handler
+    pendingDeclines.set(key, pending);
+
+    const modal = new ModalBuilder().setCustomId(`t_decline_modal_${key}`).setTitle("Decline Reason");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("decline_reason")
+          .setLabel("Reason for decline")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setPlaceholder("Enter reason for declining this player")
+      )
+    );
+    return interaction.showModal(modal);
   }
 
   // ── LEAGUE: Join ───────────────────────────────────────────────────────────
@@ -792,7 +838,6 @@ async function handleButton(interaction) {
     data.players.push(interaction.user.id);
     saveDB(db);
 
-    // Reply immediately before any slow async work
     await interaction.reply({ content: `You joined league **${lid}**! (${data.players.length}/${data.maxPlayers})`, flags: 64 });
 
     if (data.threadId) {
@@ -827,7 +872,6 @@ async function handleModal(interaction) {
     const username = interaction.user.username;
     const guild    = interaction.guild;
 
-    // Defer immediately — channel creation can take >3 seconds and will expire the token
     await interaction.deferReply({ flags: 64 });
 
     const ticketName = `tryout-${username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20)}-${Date.now().toString(36)}`;
@@ -866,10 +910,13 @@ async function handleModal(interaction) {
     );
 
     await ticketChannel.send({
-      content: `<@${userId}> <@&${TRYOUT_MANAGER_ROLE}> <@&${TRYOUT_MANAGER_ROLE_2}>`,
+      content: `<@${userId}>`,
       embeds: [embed],
       components: [closeRow],
     });
+
+    // Send notification to managers
+    await ticketChannel.send(`<@&${TRYOUT_MANAGER_ROLE}> <@&${TRYOUT_MANAGER_ROLE_2}> New tryout request!`);
 
     return interaction.editReply({ content: `Ticket created: ${ticketChannel}` });
   }
@@ -912,6 +959,66 @@ async function handleModal(interaction) {
     } catch {
       return interaction.reply({ content: "Signup submitted but couldn't DM the host (DMs may be closed).", flags: 64 });
     }
+  }
+
+  // ── TOURNAMENT DECLINE REASON MODAL ──────────────────────────────────────
+  if (id.startsWith("t_decline_modal_")) {
+    const key = id.replace("t_decline_modal_", "");
+    const pending = pendingDeclines.get(key);
+    if (!pending) return interaction.reply({ content: "This decline has expired.", flags: 64 });
+
+    const reason = interaction.fields.getTextInputValue("decline_reason");
+    const { tid, entry } = pending;
+    const data = db.tournaments[tid];
+    
+    pendingDeclines.delete(key);
+    pendingSignups.delete(key);
+
+    if (!data) return interaction.reply({ content: "Tournament no longer exists.", flags: 64 });
+
+    entry.status = "declined";
+    entry.declineReason = reason;
+    data.signups.push(entry);
+    saveDB(db);
+
+    await interaction.reply({ content: `Declined **${entry.robloxUsername}** - Reason: ${reason}`, flags: 64 });
+
+    // Update signups channel with full list
+    try {
+      const signupsCh = await client.channels.fetch(MVCT_SIGNUPS_CHANNEL).catch(() => null);
+      if (signupsCh) {
+        const accepted = data.signups.filter((s) => s.status === "accepted")
+          .map((s, i) => `${i + 1}. **${s.robloxUsername}** (${s.discordUsername})`)
+          .join("\n") || "None";
+
+        const declined = data.signups.filter((s) => s.status === "declined")
+          .map((s) => `❌ **${s.robloxUsername}** - ${s.declineReason || "No reason provided"}`)
+          .join("\n") || "None";
+
+        await signupsCh.send({
+          embeds: [new EmbedBuilder()
+            .setTitle(`${tid} — Sign Up Update`)
+            .setDescription(`**Prize:** ${data.prize}\n**Type:** ${data.type}`)
+            .addFields(
+              { name: `✅ Accepted (${data.signups.filter((s) => s.status === "accepted").length}/${data.maxPlayers})`, value: accepted, inline: false },
+              { name: "❌ Declined", value: declined, inline: false }
+            )
+            .setColor(0x57f287)
+            .setTimestamp()],
+        });
+      }
+    } catch (err) {
+      console.error("Failed to update signups channel:", err);
+    }
+
+    // DM declined player
+    try {
+      const user = await client.users.fetch(entry.discordId);
+      await user.send(`❌ Your signup for tournament **${tid}** was **declined**.\n\n**Reason:** ${reason}`).catch(() => {});
+    } catch {}
+
+    try { await interaction.message.edit({ components: [] }); } catch {}
+    return;
   }
 }
 
@@ -1060,7 +1167,6 @@ async function autoTeamUp(data, guild) {
     )
     .setTimestamp();
 
-  // Try to create a private thread for the league
   if (!data.threadId) {
     try {
       const ch = await client.channels.fetch(data.channelId);
@@ -1080,23 +1186,14 @@ async function autoTeamUp(data, guild) {
       await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch (err) {
       console.error(`[League ${data.id}] Failed to create private thread:`, err?.message ?? err);
-      // Fallback: post teams in the main channel with pings so players still get notified
-      try {
-        const ch = await client.channels.fetch(data.channelId);
-        await ch.send({ content: allMentions, embeds: [teamEmbed] });
-      } catch (err2) {
-        console.error(`[League ${data.id}] Fallback channel send also failed:`, err2?.message ?? err2);
-      }
     }
   } else {
-    // Thread already exists — just send the team message
     try {
       const thread = await client.channels.fetch(data.threadId);
       await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch {}
   }
 
-  // Update main league embed to show full / teams assigned
   try {
     const ch  = await client.channels.fetch(data.channelId);
     const msg = await ch.messages.fetch(data.messageId);
