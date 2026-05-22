@@ -828,7 +828,7 @@ async function handleModal(interaction) {
     const guild    = interaction.guild;
 
     // Defer immediately — channel creation can take >3 seconds and will expire the token
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     const ticketName = `tryout-${username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20)}-${Date.now().toString(36)}`;
 
@@ -838,7 +838,7 @@ async function handleModal(interaction) {
         name: ticketName,
         type: ChannelType.GuildText,
         permissionOverwrites: [
-          { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
           { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
           { id: TRYOUT_MANAGER_ROLE,   allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
           { id: TRYOUT_MANAGER_ROLE_2, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
@@ -1035,12 +1035,32 @@ async function updateLeagueMessage(data) {
 
 async function autoTeamUp(data, guild) {
   data.active = false;
+  saveDB(db);
 
   const half     = Math.floor(data.players.length / 2);
   const shuffled = [...data.players].sort(() => Math.random() - 0.5);
   const team1    = shuffled.slice(0, half);
   const team2    = shuffled.slice(half);
 
+  const t1Mentions = team1.map((id) => `<@${id}>`).join(", ");
+  const t2Mentions = team2.map((id) => `<@${id}>`).join(", ");
+  const allMentions = data.players.map((id) => `<@${id}>`).join(" ");
+
+  const teamEmbed = new EmbedBuilder()
+    .setTitle(`League ${data.id} — Teams Auto-Assigned!`)
+    .setColor(0x57f287)
+    .setDescription("The league is full! Teams have been randomly assigned. Good luck!")
+    .addFields(
+      { name: "Team 1",     value: t1Mentions,     inline: true },
+      { name: "Team 2",     value: t2Mentions,     inline: true },
+      { name: "Format",     value: data.format,    inline: true },
+      { name: "Match Type", value: data.matchType, inline: true },
+      { name: "Perks",      value: data.perks,     inline: true },
+      { name: "Region",     value: data.region,    inline: true },
+    )
+    .setTimestamp();
+
+  // Try to create a private thread for the league
   if (!data.threadId) {
     try {
       const ch = await client.channels.fetch(data.channelId);
@@ -1056,38 +1076,27 @@ async function autoTeamUp(data, guild) {
       for (const playerId of data.players) {
         await thread.members.add(playerId).catch(() => {});
       }
+
+      await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch (err) {
-      console.error("Failed to create league thread:", err);
+      console.error(`[League ${data.id}] Failed to create private thread:`, err?.message ?? err);
+      // Fallback: post teams in the main channel with pings so players still get notified
+      try {
+        const ch = await client.channels.fetch(data.channelId);
+        await ch.send({ content: allMentions, embeds: [teamEmbed] });
+      } catch (err2) {
+        console.error(`[League ${data.id}] Fallback channel send also failed:`, err2?.message ?? err2);
+      }
     }
-  }
-
-  const t1Mentions = team1.map((id) => `<@${id}>`).join(", ");
-  const t2Mentions = team2.map((id) => `<@${id}>`).join(", ");
-
-  const teamEmbed = new EmbedBuilder()
-    .setTitle(`League ${data.id} — Teams Auto-Assigned!`)
-    .setColor(0x57f287)
-    .setDescription("The league is full! Teams have been randomly assigned. Good luck!")
-    .addFields(
-      { name: "Team 1",     value: t1Mentions,    inline: true },
-      { name: "Team 2",     value: t2Mentions,    inline: true },
-      { name: "Format",     value: data.format,   inline: true },
-      { name: "Match Type", value: data.matchType, inline: true },
-      { name: "Perks",      value: data.perks,    inline: true },
-      { name: "Region",     value: data.region,   inline: true },
-    )
-    .setTimestamp();
-
-  if (data.threadId) {
+  } else {
+    // Thread already exists — just send the team message
     try {
       const thread = await client.channels.fetch(data.threadId);
-      await thread.send({
-        content: data.players.map((id) => `<@${id}>`).join(" "),
-        embeds: [teamEmbed],
-      });
+      await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch {}
   }
 
+  // Update main league embed to show full / teams assigned
   try {
     const ch  = await client.channels.fetch(data.channelId);
     const msg = await ch.messages.fetch(data.messageId);
