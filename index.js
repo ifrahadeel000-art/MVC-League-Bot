@@ -318,22 +318,40 @@ async function handleCommand(interaction) {
 
   // ── TRYOUT PANEL ──────────────────────────────────────────────────────────
   if (cmd === "tryout_panel") {
+    // Allow admins and tryout managers to send the panel
+    const isAdmin = interaction.member?.permissions?.has(PermissionFlagsBits.Administrator);
+    const isManager = hasRole(interaction.member, TRYOUT_MANAGER_ROLE, TRYOUT_MANAGER_ROLE_2);
+    if (!isAdmin && !isManager)
+      return interaction.reply({ content: "Only Tryout Managers or Admins can send the tryout panel.", flags: 64 });
+
+    await interaction.deferReply({ flags: 64 });
+
     const channel = await client.channels.fetch(TRYOUT_TICKET_CHANNEL).catch(() => null);
-    if (!channel) return interaction.reply({ content: "Could not find the tryout channel.", flags: 64 });
+    if (!channel) return interaction.editReply({ content: `❌ Could not find the tryout channel (<#${TRYOUT_TICKET_CHANNEL}>). Make sure the bot has access to it.` });
 
     const embed = new EmbedBuilder()
       .setTitle("📅 SCHEDULE TRYOUT")
-      .setDescription("Click the button below to schedule your tryout")
+      .setDescription("Want to try out for the team? Click the button below to schedule your tryout session with our staff.")
       .setColor(0x5865f2)
       .setFooter({ text: "Your application will be reviewed by our staff team" });
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("tryout_open_ticket").setLabel("SCHEDULE TRYOUT").setStyle(ButtonStyle.Primary).setEmoji("📅")
+      new ButtonBuilder()
+        .setCustomId("tryout_open_ticket")
+        .setLabel("SCHEDULE TRYOUT")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("📅")
     );
 
-    await channel.send({ embeds: [embed], components: [row] });
-    return interaction.reply({ content: "✅ Tryout panel sent!", flags: 64 });
+    try {
+      await channel.send({ embeds: [embed], components: [row] });
+      return interaction.editReply({ content: `✅ Tryout panel sent to <#${TRYOUT_TICKET_CHANNEL}>!` });
+    } catch (err) {
+      console.error("Failed to send tryout panel:", err);
+      return interaction.editReply({ content: `❌ Failed to send the panel: ${err.message}` });
+    }
   }
+
 
   // ── GIVEAWAY ──────────────────────────────────────────────────────────────
   if (cmd === "giveaway") {
@@ -536,21 +554,41 @@ async function handleCommand(interaction) {
       };
       saveDB(db);
 
-      // Create private thread and ping the league role in a separate message
+      // Create private thread (fall back to public if boost level too low)
       try {
-        const thread = await msg.channel.threads.create({
-          name: `League ${id}`,
-          type: ChannelType.PrivateThread,
-          invitable: false,
-          reason: `Private thread for league ${id}`,
-        });
+        let thread;
+        try {
+          thread = await msg.channel.threads.create({
+            name: `League ${id}`,
+            type: ChannelType.PrivateThread,
+            invitable: false,
+            reason: `Private thread for league ${id}`,
+          });
+        } catch (privateErr) {
+          console.warn(`[League ${id}] Private thread failed, falling back to public thread:`, privateErr?.message ?? privateErr);
+          thread = await msg.channel.threads.create({
+            name: `League ${id}`,
+            type: ChannelType.PublicThread,
+            reason: `Thread for league ${id}`,
+          });
+        }
+
         db.leagues[id].threadId = thread.id;
         saveDB(db);
 
-        // Add host to thread
-        await thread.members.add(interaction.user.id).catch(() => {});
+        // Add host to thread with explicit send permissions
+        try {
+          await thread.members.add(interaction.user.id);
+          await thread.permissionOverwrites?.edit(interaction.user.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+          }).catch(() => {});
+        } catch {}
 
-        // Send ping message in separate message
+        await thread.send(`<@${interaction.user.id}> League **${id}** has been created! Players will be added as they join.`);
+
+        // Ping the league role in the parent channel
         await msg.channel.send(`<@&${LEAGUE_ROLE}> New league available: **${id}**`);
       } catch (err) {
         console.error(`Failed to create league thread for ${id}:`, err);
@@ -603,6 +641,12 @@ async function handleCommand(interaction) {
         try {
           const thread = await client.channels.fetch(data.threadId);
           await thread.members.add(target.id);
+          // Grant explicit send permissions so the added player can chat
+          await thread.permissionOverwrites?.edit(target.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+          }).catch(() => {});
           await thread.send(`<@${target.id}> was added by <@${interaction.user.id}>.`);
         } catch {}
       }
@@ -839,6 +883,12 @@ async function handleButton(interaction) {
       try {
         const thread = await client.channels.fetch(data.threadId);
         await thread.members.add(interaction.user.id);
+        // Grant explicit send permissions so the player can chat in the thread
+        await thread.permissionOverwrites?.edit(interaction.user.id, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+        }).catch(() => {});
         await thread.send(`<@${interaction.user.id}> joined the league!`);
       } catch {}
     }
@@ -1160,26 +1210,60 @@ async function autoTeamUp(data, guild) {
   if (!data.threadId) {
     try {
       const ch = await client.channels.fetch(data.channelId);
-      const thread = await ch.threads.create({
-        name: `League ${data.id}`,
-        type: ChannelType.PrivateThread,
-        invitable: false,
-        reason: `Private thread for league ${data.id}`,
-      });
+
+      let thread;
+      try {
+        thread = await ch.threads.create({
+          name: `League ${data.id}`,
+          type: ChannelType.PrivateThread,
+          invitable: false,
+          reason: `Private thread for league ${data.id}`,
+        });
+      } catch (privateErr) {
+        console.warn(`[League ${data.id}] Private thread failed, falling back to public thread:`, privateErr?.message ?? privateErr);
+        thread = await ch.threads.create({
+          name: `League ${data.id}`,
+          type: ChannelType.PublicThread,
+          reason: `Thread for league ${data.id}`,
+        });
+      }
+
       data.threadId = thread.id;
       saveDB(db);
 
+      // Add all players with explicit view/send permissions
       for (const playerId of data.players) {
-        await thread.members.add(playerId).catch(() => {});
+        try {
+          await thread.members.add(playerId);
+          // Set explicit permission overwrites so players can send messages
+          await thread.permissionOverwrites?.edit(playerId, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+          }).catch(() => {});
+        } catch {}
       }
 
       await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch (err) {
-      console.error(`[League ${data.id}] Failed to create private thread:`, err?.message ?? err);
+      console.error(`[League ${data.id}] Failed to create thread:`, err?.message ?? err);
     }
   } else {
     try {
       const thread = await client.channels.fetch(data.threadId);
+
+      // Ensure all players have send permissions in the existing thread
+      for (const playerId of data.players) {
+        try {
+          await thread.members.add(playerId).catch(() => {});
+          await thread.permissionOverwrites?.edit(playerId, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+          }).catch(() => {});
+        } catch {}
+      }
+
       await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch {}
   }
