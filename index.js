@@ -583,8 +583,10 @@ async function handleCommand(interaction) {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
-          }).catch(() => {});
-        } catch {}
+          });
+        } catch (err) {
+          console.error(`Failed to set host permissions for league ${id}:`, err);
+        }
 
         await thread.send(`<@${interaction.user.id}> League **${id}** has been created! Players will be added as they join.`);
 
@@ -641,14 +643,15 @@ async function handleCommand(interaction) {
         try {
           const thread = await client.channels.fetch(data.threadId);
           await thread.members.add(target.id);
-          // Grant explicit send permissions so the added player can chat
           await thread.permissionOverwrites.edit(target.id, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
-          }).catch(() => {});
+          });
           await thread.send(`<@${target.id}> was added by <@${interaction.user.id}>.`);
-        } catch {}
+        } catch (err) {
+          console.error(`Failed to add player to thread:`, err);
+        }
       }
 
       await updateLeagueMessage(data);
@@ -673,7 +676,9 @@ async function handleCommand(interaction) {
           const thread = await client.channels.fetch(data.threadId);
           await thread.members.remove(target.id);
           await thread.send(`<@${target.id}> was removed by <@${interaction.user.id}>.`);
-        } catch {}
+        } catch (err) {
+          console.error(`Failed to remove player from thread:`, err);
+        }
       }
 
       await updateLeagueMessage(data);
@@ -889,14 +894,15 @@ async function handleButton(interaction) {
       try {
         const thread = await client.channels.fetch(data.threadId);
         await thread.members.add(interaction.user.id);
-        // Grant explicit send permissions so the player can chat in the thread
         await thread.permissionOverwrites.edit(interaction.user.id, {
           ViewChannel: true,
           SendMessages: true,
           ReadMessageHistory: true,
-        }).catch(() => {});
+        });
         await thread.send(`<@${interaction.user.id}> joined the league!`);
-      } catch {}
+      } catch (err) {
+        console.error(`Failed to add player to thread:`, err);
+      }
     }
 
     await updateLeagueMessage(data);
@@ -1183,7 +1189,9 @@ async function updateLeagueMessage(data) {
     const embed = buildLeagueEmbed(data.id, data.format, data.matchType, data.perks, data.region, data.hostId, data.maxPlayers, data.players);
     const components = data.players.length >= data.maxPlayers ? [] : msg.components;
     await msg.edit({ embeds: [embed], components });
-  } catch {}
+  } catch (err) {
+    console.error("Failed to update league message:", err);
+  }
 }
 
 async function autoTeamUp(data, guild) {
@@ -1241,18 +1249,19 @@ async function autoTeamUp(data, guild) {
       for (const playerId of data.players) {
         try {
           await thread.members.add(playerId);
-          // Set explicit permission overwrites so players can send messages
           await thread.permissionOverwrites.edit(playerId, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
-          }).catch(() => {});
-        } catch {}
+          });
+        } catch (err) {
+          console.error(`Failed to set permissions for ${playerId}:`, err);
+        }
       }
 
       await thread.send({ content: allMentions, embeds: [teamEmbed] });
     } catch (err) {
-      console.error(`[League ${data.id}] Failed to create thread:`, err?.message ?? err);
+      console.error(`[League ${data.id}] Failed to create thread:`, err);
     }
   } else {
     try {
@@ -1261,17 +1270,21 @@ async function autoTeamUp(data, guild) {
       // Ensure all players have send permissions in the existing thread
       for (const playerId of data.players) {
         try {
-          await thread.members.add(playerId).catch(() => {});
+          await thread.members.add(playerId);
           await thread.permissionOverwrites.edit(playerId, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
-          }).catch(() => {});
-        } catch {}
+          });
+        } catch (err) {
+          console.error(`Failed to set permissions for ${playerId}:`, err);
+        }
       }
 
       await thread.send({ content: allMentions, embeds: [teamEmbed] });
-    } catch {}
+    } catch (err) {
+      console.error(`[League ${data.id}] Failed to update thread:`, err);
+    }
   }
 
   try {
@@ -1281,7 +1294,9 @@ async function autoTeamUp(data, guild) {
       .setFooter({ text: "League is full — teams auto-assigned!" })
       .setColor(0xffd700);
     await msg.edit({ embeds: [fullEmbed], components: [] });
-  } catch {}
+  } catch (err) {
+    console.error(`Failed to update league message for ${data.id}:`, err);
+  }
 }
 
 function buildLeagueEmbed(id, format, matchType, perks, region, hostId, maxPlayers, players) {
