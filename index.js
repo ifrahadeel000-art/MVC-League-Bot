@@ -31,7 +31,7 @@ const GIVEAWAY_HOST_ROLE     = "1503089031649431582";
 const TOURNAMENT_HOST_ROLE   = "1503089031649431582";
 const TOURNAMENT_CHANNEL     = "1462389214313451561";
 const MVCT_SIGNUPS_CHANNEL   = "1507450603540840652";
-const LEAGUE_HOST_ROLE       = "1503089031649431582";
+const LEAGUE_HOST_ROLE       = "1500064722312233050";
 const LEAGUE_ROLE            = "1500068561174003853";
 
 const TOURNAMENT_RULES = `**Tournament Disclaimers**
@@ -579,7 +579,7 @@ async function handleCommand(interaction) {
         // Add host to thread with explicit send permissions
         try {
           await thread.members.add(interaction.user.id);
-          await thread.permissionOverwrites?.edit(interaction.user.id, {
+          await thread.permissionOverwrites.edit(interaction.user.id, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
@@ -642,7 +642,7 @@ async function handleCommand(interaction) {
           const thread = await client.channels.fetch(data.threadId);
           await thread.members.add(target.id);
           // Grant explicit send permissions so the added player can chat
-          await thread.permissionOverwrites?.edit(target.id, {
+          await thread.permissionOverwrites.edit(target.id, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
@@ -677,7 +677,13 @@ async function handleCommand(interaction) {
       }
 
       await updateLeagueMessage(data);
-      return interaction.reply({ content: `Removed <@${target.id}> from league \`${id}\`.` });
+      await interaction.reply({ content: `Removed <@${target.id}> from league \`${id}\`.` });
+
+      // Re-auto team if league is still full and active
+      if (data.players.length >= data.maxPlayers && data.active) {
+        await autoTeamUp(data, interaction.guild);
+      }
+      return;
     }
   }
 }
@@ -884,7 +890,7 @@ async function handleButton(interaction) {
         const thread = await client.channels.fetch(data.threadId);
         await thread.members.add(interaction.user.id);
         // Grant explicit send permissions so the player can chat in the thread
-        await thread.permissionOverwrites?.edit(interaction.user.id, {
+        await thread.permissionOverwrites.edit(interaction.user.id, {
           ViewChannel: true,
           SendMessages: true,
           ReadMessageHistory: true,
@@ -1236,7 +1242,7 @@ async function autoTeamUp(data, guild) {
         try {
           await thread.members.add(playerId);
           // Set explicit permission overwrites so players can send messages
-          await thread.permissionOverwrites?.edit(playerId, {
+          await thread.permissionOverwrites.edit(playerId, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
@@ -1256,7 +1262,7 @@ async function autoTeamUp(data, guild) {
       for (const playerId of data.players) {
         try {
           await thread.members.add(playerId).catch(() => {});
-          await thread.permissionOverwrites?.edit(playerId, {
+          await thread.permissionOverwrites.edit(playerId, {
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
