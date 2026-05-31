@@ -478,8 +478,7 @@ async function handleLeagueCancel(interaction, leagueId) {
   try {
     const thread = await client.channels.fetch(league.threadId).catch(() => null);
     if (thread) {
-      await thread.send(`League **${leagueId}** has been cancelled by <@${interaction.user.id}>. This thread will now be archived.`);
-      await thread.setArchived(true);
+      await thread.delete(`League ${leagueId} cancelled by ${interaction.user.username}`);
     }
   } catch (e) { console.error('League thread archive error:', e); }
 
@@ -507,8 +506,7 @@ async function handleCWCancel(interaction, cwId) {
   try {
     const thread = await client.channels.fetch(cw.threadId).catch(() => null);
     if (thread) {
-      await thread.send(`Clan War **${cwId}** has been cancelled by <@${interaction.user.id}>. This thread will now be archived.`);
-      await thread.setArchived(true);
+      await thread.delete(`Clan War ${cwId} cancelled by ${interaction.user.username}`);
     }
   } catch (e) { console.error('CW thread archive error:', e); }
 
