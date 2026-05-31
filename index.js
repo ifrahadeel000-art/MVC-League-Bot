@@ -28,7 +28,7 @@ const DB_PATH           = './database.json';
 // League
 const LEAGUE_CHANNEL_ID = '1501829215291703378';
 const LEAGUES_PING_ROLE = '1501829213928554565';
-const LEAGUE_HOST_ROLE  = '1501829213966176269';
+const LEAGUE_HOST_ROLE  = '1500064722312233050';
 
 // Clan War
 const CW_CHANNEL_ID     = '1495844004234006558';
@@ -63,10 +63,10 @@ function leagueMaxPlayers(format) {
 }
 
 function cwMaxPlayers(format) {
-  return { '3v3': 6, '4v4': 8 }[format];
+  return { '3v3': 3, '4v4': 4 }[format];
 }
 
-// ── Discord Client ────────────────────────────────────────────────────────────
+// ── Discord Client ────────────────────────────────────────────────────────
 
 const client = new Client({
   intents: [
@@ -76,7 +76,7 @@ const client = new Client({
   ],
 });
 
-// ── Register Commands ─────────────────────────────────────────────────────────
+// ── Register Commands ─────────────────────────────────────────────────────
 
 client.once('ready', async () => {
   console.log(`Online: ${client.user.tag}`);
@@ -174,7 +174,7 @@ client.once('ready', async () => {
     .addSubcommand(sub =>
       sub
         .setName('cancel')
-        .setDescription('Cancel a clan war (General Manager role required)')
+        .setDescription('Cancel a clan war (Clan War Host role required)')
         .addStringOption(o => o.setName('id').setDescription('Clan War ID').setRequired(true))
     );
 
@@ -185,7 +185,7 @@ client.once('ready', async () => {
   console.log('Slash commands registered.');
 });
 
-// ── League Embed ──────────────────────────────────────────────────────────────
+// ── League Embed ──────────────────────────────────────────────────────────
 
 function buildLeagueEmbed(league) {
   const playerList = league.players.map(id => `<@${id}>`).join('\n') || 'None';
@@ -215,7 +215,7 @@ function buildLeagueEmbed(league) {
     .setTimestamp();
 }
 
-// ── Clan War Embed ────────────────────────────────────────────────────────────
+// ── Clan War Embed ────────────────────────────────────────────────────────
 
 function buildCWEmbed(cw) {
   const playerList = cw.players.map(id => `<@${id}>`).join('\n') || 'None';
@@ -254,7 +254,7 @@ function buildJoinButton(type, id) {
   );
 }
 
-// ── Create League ─────────────────────────────────────────────────────────────
+// ── Create League ─────────────────────────────────────────────────────────
 
 async function createLeague(interaction) {
   const format    = interaction.options.getString('format');
@@ -315,7 +315,7 @@ async function createLeague(interaction) {
   await interaction.editReply({ content: `League **${leagueId}** has been created in <#${LEAGUE_CHANNEL_ID}>.` });
 }
 
-// ── Create Clan War ───────────────────────────────────────────────────────────
+// ── Create Clan War ───────────────────────────────────────────────────────
 
 async function createClanWar(interaction) {
   const ft      = interaction.options.getInteger('ft');
@@ -377,7 +377,7 @@ async function createClanWar(interaction) {
   await interaction.editReply({ content: `Clan War **${cwId}** has been created in <#${CW_CHANNEL_ID}>.` });
 }
 
-// ── Join League ───────────────────────────────────────────────────────────────
+// ── Join League ───────────────────────────────────────────────────────────
 
 async function handleLeagueJoin(interaction, leagueId) {
   const db     = readDB();
@@ -417,7 +417,7 @@ async function handleLeagueJoin(interaction, leagueId) {
   await interaction.reply({ content: `You have joined league **${leagueId}**. Check the private thread for details.`, ephemeral: true });
 }
 
-// ── Join Clan War ─────────────────────────────────────────────────────────────
+// ── Join Clan War ─────────────────────────────────────────────────────────
 
 async function handleCWJoin(interaction, cwId) {
   const db = readDB();
@@ -457,7 +457,7 @@ async function handleCWJoin(interaction, cwId) {
   await interaction.reply({ content: `You have joined clan war **${cwId}**. Check the private thread for details.`, ephemeral: true });
 }
 
-// ── Cancel League ─────────────────────────────────────────────────────────────
+// ── Cancel League ─────────────────────────────────────────────────────────
 
 async function handleLeagueCancel(interaction, leagueId) {
   const db     = readDB();
@@ -485,7 +485,7 @@ async function handleLeagueCancel(interaction, leagueId) {
   await interaction.reply({ content: `League **${leagueId}** has been cancelled.`, ephemeral: true });
 }
 
-// ── Cancel Clan War ───────────────────────────────────────────────────────────
+// ── Cancel Clan War ───────────────────────────────────────────────────────
 
 async function handleCWCancel(interaction, cwId) {
   const db = readDB();
@@ -513,7 +513,7 @@ async function handleCWCancel(interaction, cwId) {
   await interaction.reply({ content: `Clan War **${cwId}** has been cancelled.`, ephemeral: true });
 }
 
-// ── Interaction Handler ───────────────────────────────────────────────────────
+// ── Interaction Handler ───────────────────────────────────────────────────
 
 client.on('interactionCreate', async interaction => {
   try {
